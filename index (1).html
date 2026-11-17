@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>경성대·부경대역 3D 안내도</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#dfe6ec;--panel:rgba(255,255,255,.9);--ink:#17212b;--sub:#5d6b78;--line:rgba(0,0,0,.13);--gr:#1f8f45;--ye:#ffd400;color-scheme:light;box-sizing:border-box}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;overflow:hidden}
+#c{position:fixed;inset:0}
+#panel{position:fixed;left:14px;top:calc(14px + env(safe-area-inset-top,0px));width:316px;max-height:calc(100% - 28px);overflow:auto;background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 6px 24px rgba(30,50,70,.18)}
+.bar{height:5px;background:var(--gr);border-radius:3px;margin:-4px 0 12px}
+h1{font-size:20px;font-weight:900;margin:0;letter-spacing:-.02em}
+.sub{font-size:12px;color:var(--sub);margin:2px 0 12px}
+h2{font-size:12px;font-weight:700;color:var(--sub);margin:14px 0 6px}
+.row{display:flex;flex-wrap:wrap;gap:6px}
+button{font:inherit;font-size:13px;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:7px 11px;cursor:pointer}
+button:hover{background:#f1f4f6}
+button:focus-visible,input:focus-visible{outline:2px solid var(--gr);outline-offset:2px}
+.ex{width:42px;height:40px;padding:0;font-size:17px;font-weight:900}
+.ex.on{background:var(--ye);border-color:#c9a800;color:#111}
+.dir.on{background:var(--gr);border-color:var(--gr);color:#fff;font-weight:700}
+.fl:not(.on){opacity:.45}
+.fl[data-k=B1].on{border-color:#d98a00;background:#fff3d9}
+.fl[data-k=B2].on{border-color:#7a52c9;background:#efe7ff}
+.fl[data-k=B3].on{border-color:#1f8f9f;background:#dff6f9}
+label{font-size:13px;display:flex;gap:8px;align-items:center;margin:10px 0 0}
+#sum{font-size:13px;color:var(--gr);margin:0 0 8px;font-weight:700}
+ol{list-style:none;margin:0;padding:0;font-size:13px}
+li{position:relative;padding:5px 0 5px 22px;border-left:2px solid var(--line);margin-left:6px}
+li::before{content:"";position:absolute;left:-6px;top:10px;width:10px;height:10px;border-radius:50%;background:var(--d)}
+#hint{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));font-size:12px;color:var(--sub);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px}
+@media (max-width:640px){#panel{left:8px;right:8px;top:auto;bottom:calc(8px + env(safe-area-inset-bottom,0px));width:auto;max-height:46%}#hint{display:none}}
+</style>
+</head>
+<body>
+<div id="c"></div>
+<div id="panel">
+  <div class="bar"></div>
+  <h1>경성대·부경대역</h1>
+  <p class="sub">출구에서 승강장까지, 3D 길찾기</p>
+  <h2>출구</h2><div class="row" id="exits"></div>
+  <h2>승차 방면</h2><div class="row" id="dirs"></div>
+  <label><input type="checkbox" id="bf"> 엘리베이터만 이용 (계단 제외)</label>
+  <h2>층 보기</h2><div class="row" id="floors"></div>
+  <h2>경로</h2><p id="sum"></p><ol id="steps"></ol>
+  <div class="row" style="margin-top:12px"><button id="reset">시점 초기화</button></div>
+</div>
+<div id="hint">드래그 회전 · 휠/핀치 확대 · 우클릭 드래그 이동</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const CSS={B1:'#e29a10',B2:'#8a63d6',B3:'#1f8f9f'};
+const Y={B1:12,B2:6,B3:0},GREEN=0x2fa44f;
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xdfe6ec);scene.fog=new THREE.Fog(0xdfe6ec,120,260);
+const cam=new THREE.PerspectiveCamera(45,1,0.1,500);
+const ren=new THREE.WebGLRenderer({antialias:true});ren.setPixelRatio(Math.min(devicePixelRatio,2));
+ren.outputEncoding=THREE.sRGBEncoding;ren.toneMapping=THREE.ACESFilmicToneMapping;ren.toneMappingExposure=1.05;
+ren.shadowMap.enabled=true;ren.shadowMap.type=THREE.PCFSoftShadowMap;
+document.getElementById('c').appendChild(ren.domElement);
+const ctl=new THREE.OrbitControls(cam,ren.domElement);ctl.enableDamping=true;ctl.maxPolarAngle=Math.PI*0.88;ctl.minDistance=8;ctl.maxDistance=140;
+function fit(){const w=innerWidth,h=innerHeight;ren.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix();}
+addEventListener('resize',fit);fit();
+
+/* 조명 */
+scene.add(new THREE.HemisphereLight(0xfff4e6,0x8a96a3,0.85));
+const sun=new THREE.DirectionalLight(0xfff1dc,1.1);sun.position.set(30,60,25);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-48,right:48,top:48,bottom:-48,near:1,far:160});sun.shadow.bias=-0.0006;sun.shadow.radius=3;scene.add(sun);
+[[0,3.5,3,0.7,34],[0,9,0,0.6,34],[0,14.5,0,0.5,40]].forEach(a=>{const l=new THREE.PointLight(0xfff0d8,a[3],a[4]);l.position.set(a[0],a[1],a[2]);scene.add(l);});
+const gnd=new THREE.Mesh(new THREE.PlaneGeometry(500,500),new THREE.MeshStandardMaterial({color:0xcdd4da,roughness:1}));gnd.rotation.x=-Math.PI/2;gnd.position.y=-3.4;gnd.receiveShadow=true;scene.add(gnd);
+
+/* 질감 */
+function tx(c,rx,ry){const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx||1,ry||1);t.anisotropy=8;return t;}
+function speck(g,n,s,a){for(let i=0;i<n;i++){g.fillStyle=(Math.random()<0.5?'rgba(0,0,0,':'rgba(255,255,255,')+(Math.random()*a)+')';g.fillRect(Math.random()*s,Math.random()*s,1+Math.random()*2,1+Math.random()*2);}}
+function tileTex(base,grout,rx,ry){const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');g.fillStyle=base;g.fillRect(0,0,256,256);speck(g,2200,256,0.18);g.strokeStyle=grout;g.lineWidth=5;g.strokeRect(0,0,256,256);return tx(c,rx,ry);}
+function concTex(rx,ry){const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');g.fillStyle='#9fa2a5';g.fillRect(0,0,256,256);speck(g,4500,256,0.3);return tx(c,rx,ry);}
+function tactTex(rx){const c=document.createElement('canvas');c.width=64;c.height=64;const g=c.getContext('2d');g.fillStyle='#e8c21c';g.fillRect(0,0,64,64);g.fillStyle='#b8970a';for(let i=0;i<4;i++)for(let j=0;j<4;j++){g.beginPath();g.arc(8+i*16,8+j*16,3.5,0,7);g.fill();}return tx(c,rx,1);}
+function bedTex(){const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');g.fillStyle='#4a4743';g.fillRect(0,0,128,128);speck(g,3000,128,0.5);g.fillStyle='#6b6258';g.fillRect(0,50,128,22);return tx(c,26,1);}
+
+/* 헬퍼 */
+function bx(g,w,h,d,x,y,z,c,o){o=o||{};
+  const M=new THREE.MeshStandardMaterial({color:c,roughness:o.r!==undefined?o.r:0.7,metalness:o.m||0,map:o.map||null,emissive:o.e||0,emissiveIntensity:o.ei||1});
+  if(o.o){M.transparent=true;M.opacity=o.o;M.depthWrite=false;}
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M);m.position.set(x,y,z);m.castShadow=!o.o;m.receiveShadow=true;g.add(m);return m;}
+function slab(g,w,d,y,z,top){const th=0.9,side=new THREE.MeshStandardMaterial({map:concTex(w/6,1),roughness:0.95}),side2=new THREE.MeshStandardMaterial({map:concTex(d/6,1),roughness:0.95});
+  const t=new THREE.MeshStandardMaterial({map:tileTex(top[0],top[1],w/2,d/2),roughness:0.35,metalness:0.05});
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,th,d),[side2,side2,t,side,side,side]);m.position.set(0,y-th/2,z);m.castShadow=m.receiveShadow=true;g.add(m);}
+function sprMat(c,t){const m=new THREE.CanvasTexture(c);m.encoding=THREE.sRGBEncoding;return new THREE.SpriteMaterial({map:m,depthTest:false,transparent:true,toneMapped:false});}
+function pill(t,col,s){const c=document.createElement('canvas');c.width=384;c.height=96;const g=c.getContext('2d');
+  g.fillStyle='rgba(255,255,255,.96)';g.strokeStyle=col;g.lineWidth=6;g.beginPath();if(g.roundRect)g.roundRect(4,4,376,88,20);else g.rect(4,4,376,88);g.fill();g.stroke();
+  g.fillStyle='#17212b';g.font='700 40px "Noto Sans KR",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(t,192,50);
+  const sp=new THREE.Sprite(sprMat(c));sp.scale.set(s*4,s,1);sp.renderOrder=9;return sp;}
+function numTag(n){const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');
+  g.fillStyle='#ffd400';g.fillRect(6,6,116,116);g.strokeStyle='#111';g.lineWidth=5;g.strokeRect(6,6,116,116);g.fillStyle='#111';g.font='900 84px "Noto Sans KR",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(n,64,68);
+  const sp=new THREE.Sprite(sprMat(c));sp.renderOrder=9;return sp;}
+
+const F={B1:new THREE.Group(),B2:new THREE.Group(),B3:new THREE.Group()};Object.values(F).forEach(g=>scene.add(g));
+/* 층 바닥: 화강석 타일 + 콘크리트 단면 */
+slab(F.B1,52,12,Y.B1,0,['#c7c8c6','#8d9094']);
+slab(F.B2,36,12,Y.B2,0,['#bdbfc0','#868a8e']);
+slab(F.B3,52,4.5,Y.B3,3.75,['#b4b8bb','#7f8488']);slab(F.B3,52,4.5,Y.B3,-3.75,['#b4b8bb','#7f8488']);
+/* 승강장: 점자블록, 스크린도어, 선로 */
+[[-1.95],[1.95]].forEach(a=>bx(F.B3,52,0.05,0.6,0,0.025,a[0],0xe8c21c,{map:tactTex(104),r:0.6}));
+bx(F.B3,52,0.5,3.0,0,-1.45,0,0xffffff,{map:bedTex(),r:1});
+[-0.72,0.72].forEach(z=>bx(F.B3,52,0.16,0.12,0,-1.05,z,0xb9c0c7,{m:0.9,r:0.3}));
+[-1.5,1.5].forEach(z=>{bx(F.B3,52,2.3,0.05,0,1.2,z,0x9fc3d6,{o:0.22,r:0.1});bx(F.B3,52,0.1,0.1,0,2.35,z,0xcfd4d8,{m:0.8,r:0.3});for(let i=-13;i<=13;i++)bx(F.B3,0.1,2.3,0.1,i*2,1.2,z,0xcfd4d8,{m:0.8,r:0.3});});
+/* 승강장 뒷벽 + 역명판 */
+bx(F.B3,52,5.1,0.4,0,2.55,-6.2,0xe9ebec,{map:tileTex('#e8eaea','#c4c7c9',26,2.5),r:0.4});
+bx(F.B3,52,0.45,0.42,0,1.6,-6.2,GREEN,{r:0.5});
+[-14,14].forEach(x=>{const n=pill('경성대·부경대',  '#2fa44f',1.0);n.scale.set(5.2,1.3,1);n.position.set(x,3.8,-5.8);F.B3.add(n);});
+/* B1 시설 */
+for(let i=-2;i<=2;i++){bx(F.B1,0.5,1.05,1.0,-3.5,Y.B1+0.52,i*1.4,0xd3d7da,{m:0.6,r:0.35});bx(F.B1,0.52,0.05,0.7,-3.5,Y.B1+1.07,i*1.4,0x2a2f34);bx(F.B1,0.1,0.1,0.1,-3.5,Y.B1+1.13,i*1.4+0.3,0x37d36b,{e:0x37d36b});}
+bx(F.B1,3,2.2,2.2,6,Y.B1+1.1,-3.6,0xdfe3e5,{r:0.5});bx(F.B1,2.6,1.1,0.06,6,Y.B1+1.3,-2.5,0x9fc3d6,{o:0.45,r:0.1});
+bx(F.B1,3,2.6,2.2,-9,Y.B1+1.3,4,0xcdd3d8,{r:0.6});
+[['개찰구',-3.5,0,2.4],['역무실',6,-3.6,3.6],['화장실',-9,4,3.9]].forEach(a=>{const l=pill(a[0],CSS.B1,1.0);l.scale.set(3,0.75,1);l.position.set(a[1],Y.B1+a[3],a[2]);F.B1.add(l);});
+/* 기둥 */
+[-17,0,17].forEach(x=>[-5.6,5.6].forEach(z=>bx(scene,0.6,12.6,0.6,x,6.3,z,0xb7babc,{map:concTex(1,4),r:0.9})));
+/* 계단·에스컬레이터 */
+function flight(g,x0,y0,x1,y1,z,w,c,nose,rail,n){
+  const len=Math.abs(x1-x0)/n,dy=(y1-y0)/n,dir=Math.sign(x1-x0);
+  for(let i=0;i<n;i++){const x=x0+dir*(i+0.5)*len,y=y0+(i+0.5)*dy;
+    bx(g,len,0.3,w,x,y-0.18,z,c,{r:0.5,m:0.1});bx(g,0.12,0.05,w*0.98,x+dir*len*0.44,y-0.02,z,nose,{r:0.5});}
+  const L=Math.hypot(x1-x0,y1-y0),a=Math.atan2(y1-y0,x1-x0);
+  [z-w/2,z+w/2].forEach(zz=>{const p=bx(g,L,0.9,0.07,(x0+x1)/2,(y0+y1)/2+0.5,zz,rail,{m:0.85,r:0.3});p.rotation.z=a;const h=bx(g,L,0.07,0.12,(x0+x1)/2,(y0+y1)/2+1.0,zz,0x15181b,{r:0.6});h.rotation.z=a;});}
+[-1,1].forEach(s=>{const a=16*s,b=6*s;
+  flight(F.B2,a,Y.B1,b,Y.B2,-2,1.8,0x8d9094,0xd9b43a,0xc9ced2,14);flight(F.B2,b,Y.B2,a,Y.B3,2,1.8,0x8d9094,0xd9b43a,0xc9ced2,14);
+  flight(F.B2,a,Y.B1,b,Y.B2,-4.2,1.2,0x2b3036,0xb8bec4,0xb8bec4,14);flight(F.B2,b,Y.B2,a,Y.B3,4.2,1.2,0x2b3036,0xb8bec4,0xb8bec4,14);});
+/* 엘리베이터 */
+bx(scene,2,12.4,2,0,6,4,0xbfe0ee,{o:0.2,r:0.05});const eg=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2,12.4,2)),new THREE.LineBasicMaterial({color:0x7d8a94}));eg.position.set(0,6,4);scene.add(eg);
+const cab=bx(scene,1.6,2.2,1.6,0,1.1,4,0xd7dce0,{m:0.7,r:0.35});
+const le=pill('엘리베이터',CSS.B3,1.0);le.scale.set(3.4,0.85,1);le.position.set(0,Y.B1+3,4);scene.add(le);
+/* 출구 */
+const EX={1:[-24,-4],2:[-24,4],3:[-4,-5],4:[4,-5],5:[24,-4],6:[24,4]},exTag={};
+Object.entries(EX).forEach(([n,p])=>{const x=p[0],z=p[1],sg=z<0?1:-1;
+  bx(F.B1,2.8,5.4,2.8,x,Y.B1+2.7,z,0xb3b6b8,{map:concTex(1,2),r:0.9});
+  bx(F.B1,2.0,3.0,0.1,x,Y.B1+1.5,z+sg*1.43,0x1c1f22,{r:0.6});bx(F.B1,2.4,0.2,0.3,x,Y.B1+3.2,z+sg*1.5,0x2f9e5a);
+  const t=numTag(n);t.position.set(x,Y.B1+6.8,z);F.B1.add(t);exTag[n]=t;});
+const dN=pill('남천역 방면','#1f8f9f',1.0);dN.scale.set(4.4,1.1,1);dN.position.set(-24,3.4,3.5);F.B3.add(dN);
+const dD=pill('대연역 방면','#1f8f9f',1.0);dD.scale.set(4.4,1.1,1);dD.position.set(24,3.4,3.5);F.B3.add(dD);
+[['B1',-28],['B2',-20],['B3',-28]].forEach(a=>{const l=pill(a[0],CSS[a[0]],1.0);l.scale.set(2.6,0.65,1);l.position.set(a[1],Y[a[0]]+1.2,-6.5);scene.add(l);});
+/* 열차 (스테인리스 + 2호선 녹색 띠) */
+const train=new THREE.Group();
+for(let i=0;i<5;i++){const x=(i-2)*6.9;bx(train,6.6,2.9,2.7,x,0,0,0xd5d9dd,{m:0.75,r:0.3});bx(train,6.64,0.95,2.74,x,0.5,0,0x1a2430,{m:0.3,r:0.15});bx(train,6.64,0.3,2.74,x,-0.55,0,GREEN,{r:0.5});
+  [-1.6,1.6].forEach(dx=>bx(train,1.3,2.0,2.78,x+dx,-0.1,0,0xb8bec4,{m:0.6,r:0.3}));}
+train.position.set(90,0.45,0);scene.add(train);
+function trainX(t){const c=t%18;if(c<5){const k=1-c/5;return 90*k*k;}if(c<11)return 0;if(c<16){const k=(c-11)/5;return -90*k*k;}return -90;}
+
+/* 경로 그래프 */
+const N={X1:[-24,12,-4,'1번 출구'],X2:[-24,12,4,'2번 출구'],X3:[-4,12,-5,'3번 출구'],X4:[4,12,-5,'4번 출구'],X5:[24,12,-4,'5번 출구'],X6:[24,12,4,'6번 출구'],
+ W1:[-16,12,-2,'서쪽 계단 입구'],CM:[0,12,0,'개찰구 통과'],E1:[16,12,-2,'동쪽 계단 입구'],W2a:[-6,6,-2],W2b:[-6,6,2,'중간층 환승 통로'],W3:[-16,0,3,'승강장 도착'],
+ E2a:[6,6,-2],E2b:[6,6,2,'중간층 환승 통로'],E3:[16,0,3,'승강장 도착'],L1:[0,12,4,'엘리베이터 탑승'],L2:[0,6,4],L3:[0,0,4,'엘리베이터 하차'],PM:[0,0,3],
+ BN:[-22,0,3,'남천역 방면 승차 위치'],BD:[22,0,3,'대연역 방면 승차 위치']};
+const E=[],add=(a,b,t)=>E.push([a,b,t||'w']);
+add('X1','W1');add('X2','W1');add('X3','CM');add('X4','CM');add('X5','E1');add('X6','E1');add('W1','CM');add('CM','E1');add('CM','L1');
+add('W1','W2a','st');add('W2a','W2b');add('W2b','W3','st');add('E1','E2a','st');add('E2a','E2b');add('E2b','E3','st');
+add('L1','L2','el');add('L2','L3','el');add('L3','PM');add('W3','PM');add('PM','E3');add('W3','BN');add('E3','BD');
+const dist=(a,b)=>Math.hypot(N[a][0]-N[b][0],N[a][1]-N[b][1],N[a][2]-N[b][2]);
+function route(s,t,bf){const d={},pv={},todo=new Set(Object.keys(N));Object.keys(N).forEach(k=>d[k]=1e9);d[s]=0;
+  while(todo.size){let u=null;todo.forEach(k=>{if(u===null||d[k]<d[u])u=k;});todo.delete(u);if(u===t||d[u]>=1e9)break;
+    E.forEach(e=>{if(bf&&e[2]==='st')return;const v=e[0]===u?e[1]:e[1]===u?e[0]:null;if(!v)return;const w=d[u]+dist(u,v)*(e[2]==='el'?1.4:1);if(w<d[v]){d[v]=w;pv[v]=u;}});}
+  if(d[t]>=1e9)return null;const p=[t];while(p[0]!==s)p.unshift(pv[p[0]]);return p;}
+const fl=y=>y>9?'B1':y>3?'B2':'B3';
+
+/* UI */
+let selEx='1',selDir='BN';
+const q=s=>document.querySelector(s);
+Object.keys(EX).forEach(n=>{const b=document.createElement('button');b.className='ex';b.textContent=n;b.dataset.k=n;b.onclick=()=>{selEx=n;draw();};q('#exits').appendChild(b);});
+[['BN','남천역 방면'],['BD','대연역 방면']].forEach(a=>{const b=document.createElement('button');b.className='dir';b.textContent=a[1];b.dataset.k=a[0];b.onclick=()=>{selDir=a[0];draw();};q('#dirs').appendChild(b);});
+['B1','B2','B3'].forEach(k=>{const b=document.createElement('button');b.className='fl on';b.dataset.k=k;b.textContent=k;b.onclick=()=>{F[k].visible=!F[k].visible;b.classList.toggle('on',F[k].visible);};q('#floors').appendChild(b);});
+q('#bf').onchange=draw;q('#reset').onclick=()=>fly(new THREE.Vector3(0,6,0),new THREE.Vector3(46,36,50));
+let goal=null;function fly(t,p){goal={t:t,p:p};}
+ctl.addEventListener('start',()=>{goal=null;});
+cam.position.set(110,80,110);ctl.target.set(0,6,0);
+
+/* 경로 표시 */
+const cc=document.createElement('canvas');cc.width=64;cc.height=32;{const g=cc.getContext('2d');g.strokeStyle='#fff';g.lineWidth=7;g.lineCap='round';g.beginPath();g.moveTo(16,5);g.lineTo(42,16);g.lineTo(16,27);g.stroke();}
+const chev=new THREE.CanvasTexture(cc);chev.wrapS=THREE.RepeatWrapping;
+let pg=null,curve=null,runner=null,rings=[],t0=0;
+function ring(p,c){const r=new THREE.Mesh(new THREE.RingGeometry(0.9,1.3,40),new THREE.MeshBasicMaterial({color:c,transparent:true,depthTest:false}));r.rotation.x=-Math.PI/2;r.position.copy(p);r.position.y+=0.15;r.renderOrder=7;return r;}
+function draw(){
+  document.querySelectorAll('.ex').forEach(b=>b.classList.toggle('on',b.dataset.k===selEx));
+  document.querySelectorAll('.dir').forEach(b=>b.classList.toggle('on',b.dataset.k===selDir));
+  Object.entries(exTag).forEach(a=>{const s=a[0]===selEx?5:3.2;a[1].scale.set(s,s,1);});
+  if(pg)scene.remove(pg);rings=[];
+  const p=route('X'+selEx,selDir,q('#bf').checked),ol=q('#steps'),sum=q('#sum');ol.innerHTML='';
+  if(!p){sum.textContent='경로를 찾지 못했습니다.';return;}
+  let len=0;for(let i=1;i<p.length;i++)len+=dist(p[i-1],p[i]);
+  sum.textContent='약 '+Math.round(len*2.2)+'m · 도보 '+Math.max(1,Math.round(len*2.2/70))+'분 (모형 기준 추정)';
+  p.forEach(k=>{if(N[k][3]){const li=document.createElement('li');li.textContent=N[k][3];li.style.setProperty('--d',CSS[fl(N[k][1])]);ol.appendChild(li);}});
+  const pts=p.map(k=>new THREE.Vector3(N[k][0],N[k][1]+0.7,N[k][2])),dn=[];
+  for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i],n=Math.max(2,Math.ceil(a.distanceTo(b)/2));for(let j=0;j<n;j++)dn.push(a.clone().lerp(b,j/n));}dn.push(pts[pts.length-1]);
+  curve=new THREE.CatmullRomCurve3(dn,false,'catmullrom',0.02);const L=curve.getLength();
+  pg=new THREE.Group();
+  const glow=new THREE.Mesh(new THREE.TubeGeometry(curve,dn.length*6,0.17,8,false),new THREE.MeshBasicMaterial({color:0x0a6cff,depthTest:false}));glow.renderOrder=5;pg.add(glow);
+  chev.repeat.set(L/1.4,1);
+  const fw=new THREE.Mesh(new THREE.TubeGeometry(curve,dn.length*6,0.32,8,false),new THREE.MeshBasicMaterial({map:chev,transparent:true,depthTest:false,toneMapped:false}));fw.renderOrder=6;pg.add(fw);
+  runner=new THREE.Mesh(new THREE.SphereGeometry(0.6,16,16),new THREE.MeshBasicMaterial({color:0xff5a1f,depthTest:false}));runner.renderOrder=8;pg.add(runner);
+  const r1=ring(pts[0],0xff8a00),r2=ring(pts[pts.length-1],0x1f8f45);pg.add(r1);pg.add(r2);rings=[r1,r2];
+  scene.add(pg);t0=performance.now();
+  const c=new THREE.Box3().setFromPoints(pts).getCenter(new THREE.Vector3()),sz=Math.max(24,Math.min(60,L*0.8));
+  fly(c,new THREE.Vector3(c.x+sz*0.9,c.y+sz*0.75,c.z+sz*1.1));
+}
+draw();
+const clk=new THREE.Clock();
+(function loop(){requestAnimationFrame(loop);const dt=clk.getDelta(),T=clk.elapsedTime;
+  if(goal){ctl.target.lerp(goal.t,Math.min(1,dt*2.5));cam.position.lerp(goal.p,Math.min(1,dt*2.5));}
+  if(curve){const u=((performance.now()-t0)/1000/Math.max(6,curve.getLength()/7))%1.2;runner.position.copy(curve.getPoint(Math.min(u,1)));chev.offset.x-=dt*1.6;}
+  rings.forEach((r,i)=>{const s=1+0.25*Math.sin(T*4+i*2);r.scale.set(s,s,1);});
+  train.position.x=trainX(T);cab.position.y=1.1+Math.abs(Math.sin(T*0.4))*10;
+  ctl.update();ren.render(scene,cam);})();
+</script>
+</body>
+</html>
